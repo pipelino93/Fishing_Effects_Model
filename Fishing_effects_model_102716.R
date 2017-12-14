@@ -5,15 +5,30 @@ library(reshape2)
 library(rgdal)
 library(maptools)
 
-
+FEM <- function(dir="D:\\Dropbox\\Fishing_effects_model\\to_maedhbh",
+		gear="all", habFeature = "both",
+		current.TimeDate = paste(substr(Sys.time(), 1,4), substr(Sys.time(), 6,7), substr(Sys.time(), 9,10),
+					 sep=""),
+		outFile = paste("disturbProps_deepSteep_", gear, "Gear_",habFeature, "Struct_", 
+				current.TimeDate,  sep = ""),
+		grid5k = readOGR(dsn = "Fishing_effects_model.gdb", layer = "Grid5k"),
+		f.effort = read.csv("R_input_tables\\aggregated_fishing_effort_fake_data.csv"),
+		gw.tab = read.csv("R_input_tables\\GearWidthTable_022316.csv"),
+		recovery_table = read.csv("R_input_tables\\Recovery_table_DeepCorals.csv"),
+		adjustments = c("adjLow", "adjMed", "adjHigh"),
+		sed = read.dbf("R_input_tables\\sediment_v4_deepCorals.dbf"),
+		props = c("mudProp","sandProp","grpeProp","cobProp","bouldProp", "deepProp"),
+		subst_types = c("Mud", "Sand", "Gran.Peb", "Cobble", "Boulder", "DeepSteep"),
+		SASI_gears = c("trawl", "longline", "trap")){
+		
 rm(list = ls())
 # Set working directory
-setwd("D:\\Dropbox\\Fishing_effects_model\\to_maedhbh")
+setwd(dir)
 
 
-gear = "all"  ## Pelagic trawls: "PTR", Non-pelagic trawls: "NPT", Hook and line: "HAL", Jig: "JIG", Pots/traps: "POT"
+# gear = "all"  ## Pelagic trawls: "PTR", Non-pelagic trawls: "NPT", Hook and line: "HAL", Jig: "JIG", Pots/traps: "POT"
 
-habFeature = "both"  ## Keep "b":biological, "g": geological, or "both"
+# habFeature = "both"  ## Keep "b":biological, "g": geological, or "both"
 
 if(habFeature == "both"){
 	habFeatToKeep = c("G", "B")  
@@ -30,52 +45,39 @@ if(gear == "all"){
 
 	
 ### Output file name
-year.now = substr(Sys.time(), 1,4)
-month.now = substr(Sys.time(), 6,7)
-day.now = substr(Sys.time(), 9,10)
-
-
-outFile = paste("disturbProps_deepSteep_", gear, "Gear_",habFeature, "Struct_", year.now, month.now, day.now,  sep = "")
-
-	
+# outFile = paste("disturbProps_deepSteep_", gear, "Gear_",habFeature, "Struct_", current.TimeDate,  sep = "")
 	
 
 # Import data
-grid5k = readOGR(dsn = "Fishing_effects_model.gdb", layer = "Grid5k")
+# grid5k = readOGR(dsn = "Fishing_effects_model.gdb", layer = "Grid5k")
 grid5k.dat = grid5k@data
 
-fe = read.csv("R_input_tables\\aggregated_fishing_effort_fake_data.csv")
-#fe = subset(fe, YEAR <2016)  ## CIA only goes through June of 2015
-
-gt = read.csv("R_input_tables\\GearWidthTable_022316.csv")
-
-recovery_table = read.csv("R_input_tables\\Recovery_table_DeepCorals.csv")
-
-
+#f.effort = read.csv("R_input_tables\\aggregated_fishing_effort_fake_data.csv")
+#fe = subset(f.effort, YEAR <2016)  ## CIA only goes through June of 2015
+# gw.tab = read.csv("R_input_tables\\GearWidthTable_022316.csv")
+# recovery_table = read.csv("R_input_tables\\Recovery_table_DeepCorals.csv")
 
 
 
 ### Convert total fishing to contact adjusted
-fe = merge(fe, gt[,c("GearID", "Gear", "SASI_gear", "adjLow","adjMed", "adjHigh")], by.x = "GEARID", by.y = "GearID", all.x = T)
+fe = merge(f.effort, gw.tab[,c("GearID", "Gear", "SASI_gear", "adjLow","adjMed", "adjHigh")],
+	   by.x = "GEARID", by.y = "GearID", all.x = T)
 
 
 
 ## Gear mods
-fe[fe$GEARID %in% 45:53 & fe$YEAR < 2011, ]$adjLow = 1  # Pre 2011 gear change
-fe[fe$GEARID %in% 45:53 & fe$YEAR < 2011, ]$adjMed = 1
-fe[fe$GEARID %in% 45:53 & fe$YEAR < 2011, ]$adjHigh = 1
+for(adj.type in adjustments){
+	fe[fe$GEARID %in% 45:53 & fe$YEAR < 2011, adj.type] = 1  # Pre 2011 gear change
+}
 
-
-fe[fe$GEARID %in% c(6,7,9,10) & fe$YEAR < 2014, ]$adjLow = 1  # Pre Feb 2014 gear change
-fe[fe$GEARID %in% c(6,7,9,10) & fe$YEAR < 2014, ]$adjMed = 1
-fe[fe$GEARID %in% c(6,7,9,10) & fe$YEAR < 2014, ]$adjHigh = 1
-
+for(adj.type in adjustments){
+	fe[fe$GEARID %in% c(6,7,9,10) & fe$YEAR < 2014, adj.type] = 1  # Pre Feb 2014 gear change
+}
+		
 ## None of these gears in Jan 2014
 #fe[fe$GEARID %in% c(6,7,9,10) & fe$YEAR == 2014 & fe$MONTH == 1, ]$adjLow = 1  # Pre Feb 2014 gear change
 #fe[fe$GEARID %in% c(6,7,9,10) & fe$YEAR == 2014 & fe$MONTH == 1, ]$adjMed = 1
 #fe[fe$GEARID %in% c(6,7,9,10) & fe$YEAR == 2014 & fe$MONTH == 1, ]$adjHigh = 1
-
-
 
 
 fe[!(fe$Gear %in% gearToKeep), ]$SUM_Shape_ = 0 # Change area of gears not interested in keeping to zero
@@ -83,42 +85,30 @@ fe[!(fe$Gear %in% gearToKeep), ]$SUM_Shape_ = 0 # Change area of gears not inter
 
 fe$adjArea = fe$SUM_Shape_ * runif(nrow(fe), min = fe$adjLow, max = fe$adjHigh) ## Random uniform contact adj from min and max
 
-
-
+		
 ## aggregate fishing adjusted fishing effort
 fe.agg = aggregate(adjArea ~ Grid5k_ID + YEAR + MONTH + SASI_gear, data = fe, sum)
-
-
-
-
-
-
-
-
 
 grid_order = sort(unique(fe$Grid5k_ID))
 
 # Sediment 
-sed = read.dbf("R_input_tables\\sediment_v4_deepCorals.dbf")
+# sed = read.dbf("R_input_tables\\sediment_v4_deepCorals.dbf")
 
 
 # Create sediment matrix for model.  Make sure grid order is same as I_a 
 # and keep only sediment areas
-sedProps = as.matrix(sed[match(grid_order, sed$Grid5k_ID), 
-                         c("mudProp","sandProp","grpeProp","cobProp","bouldProp", "deepProp") ])
+sedProps = as.matrix(sed[ match(grid_order, sed$Grid5k_ID), props ])
 
 
+# subst_types = c("Mud", "Sand", "Gran.Peb", "Cobble", "Boulder", "DeepSteep")
 
-
-subst_types = c("Mud", "Sand", "Gran.Peb", "Cobble", "Boulder", "DeepSteep")
-
-SASI_gears = c("trawl", "longline", "trap")
+# SASI_gears = c("trawl", "longline", "trap")
 
 # Set parameters
 nYears = length(unique(fe$YEAR))
 nSubAnnual = 12
 nGrid = length(unique(fe$Grid5k_ID))
-nGear = 3  # Number of SASI gears:  Trawl, Trap, Longline
+nGear = length(SASI_gears)  # Number of SASI gears:  Trawl, Trap, Longline
 nSubst = ncol(sedProps) #Number of substrates
 
 gear_types = levels(fe$SASI_gear)
@@ -130,13 +120,6 @@ m = merge(grid5k.dat, fe.agg, by = "Grid5k_ID")
 m$prop = m$adjAre/m$Shape_Area
 
 m$MONTH = as.numeric(as.character(m$MONTH))
-
-
-
-
-
-
-
 
 
 
@@ -399,7 +382,7 @@ dist.out@data = grid5k_results[order(grid5k_results$orderID),]
 writeSpatialShape(dist.out, paste("FE_model_output\\", outFile, ".shp", sep = ""))
 
 
-
+} ##End FEM function
 
 
 
